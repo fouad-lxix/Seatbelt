@@ -1,0 +1,29 @@
+# Compiled binaries. Anchored with a leading slash so they match only the
+# built artefacts at the repo root, not the cmd/gateway source directory.
+/seatbelt
+/gateway
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+/dist/
+
+# Test files and test output
+*_test.go
+*.test
+*.out
+coverage.*
+
+# Real configuration and secrets. .env.example is the only one committed
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

@@ -1,0 +1,33 @@
+# Keep the build context small and secrets out of it. Anything listed here is
+# invisible to the Docker daemon, so it cannot end up in an image layer even
+# by accident.
+
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+
+# Build artefacts from local `go build`
+seatbelt
+gateway
+*.exe
+/bin/
+/dist/
+
+# Test files and test output
+*_test.go
+*.test
+*.out
+coverage.*
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Documentation is not needed to compile
+README.md

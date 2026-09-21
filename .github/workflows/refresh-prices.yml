@@ -1,0 +1,85 @@
+name: Refresh prices
+
+# Proposes a price update, never pushes to main directly. These numbers
+# gate everyone's spend cap, so a change should be read by someone before
+# it reaches users.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Regenerate the price file
+        working-directory: internal/pricing
+        run: |
+          # The generator refuses to write a file that would fail
+          # validation, so a bad upstream change fails this step rather
+          # than opening a pull request nobody should merge.
+          go run ./gen | tee "$RUNNER_TEMP/summary.txt"
+
+      - name: Check whether anything changed
+        id: diff
+        run: |
+          if git diff --quiet -- pricing/ internal/pricing/data/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Prices are unchanged."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git --no-pager diff --stat -- pricing/ internal/pricing/data/
+          fi
+
+      - name: Verify the new file passes everything
+        if: steps.diff.outputs.changed == 'true'
+        run: go run ./cmd/validate-prices pricing/v1/prices.json
+
+      - name: Capture the generator summary
+        id: summary
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          {
+            echo 'text<<GENERATOR_SUMMARY_EOF'
+            cat "$RUNNER_TEMP/summary.txt"
+            echo 'GENERATOR_SUMMARY_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open a pull request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: prices/refresh
+          title: "Refresh model prices"
+          commit-message: "pricing: refresh from upstream"
+          delete-branch: true
+          labels: pricing
+          body: |
+            Automated price refresh from the upstream dataset.
+
+            **Read the summary below before merging.** Any rate marked
+            `DERIVED` was computed from a published multiplier rather than
+            read from upstream, those are worth checking against the
+            provider's own pricing page.
+
+            Merging this publishes the new prices to every running Seatbelt
+            within 24 hours. No rebuild or redeploy is needed, which is why
+            the diff deserves a look.
+
+            <details>
+            <summary>Generator output</summary>
+
+            ```
+            ${{ steps.summary.outputs.text }}
+            ```
+            </details>

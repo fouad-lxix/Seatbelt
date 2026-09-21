@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+  prices:
+    name: Price file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      # Every rule a running gateway applies to a fetched price file is
+      # applied here too, so a bad price cannot be merged.
+      - name: Validate the published price file
+        run: go run ./cmd/validate-prices pricing/v1/prices.json
+
+      # The published copy and the embedded fallback must stay identical,
+      # or offline prices silently differ from fetched prices.
+      - name: Check the embedded copy is in step
+        run: |
+          if ! diff -u pricing/v1/prices.json internal/pricing/data/prices.json; then
+            echo
+            echo "pricing/v1/prices.json and internal/pricing/data/prices.json have diverged."
+            echo "Run: cd internal/pricing && go run ./gen"
+            exit 1
+          fi
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t seatbelt:ci .
+
+      - name: Start it and check it answers
+        run: |
+          docker run -d --name seatbelt-ci -p 8080:8080 \
+            -e ANTHROPIC_API_KEY=sk-ant-ci-not-a-real-key \
+            -e PRICING_REFRESH=false \
+            seatbelt:ci
+          for i in $(seq 1 20); do
+            if curl -fsS http://localhost:8080/healthz; then
+              echo
+              echo "gateway is up"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:8080/stats > /dev/null
+          echo "stats endpoint answered"
+
+      # Seatbelt allows itself 20 seconds to drain, docker stop's default
+      # of 10 would SIGKILL it halfway through, so -t 30 gives it room.
+      - name: Check it shuts down gracefully
+        run: |
+          docker stop -t 30 seatbelt-ci
+          code=$(docker inspect seatbelt-ci --format '{{.State.ExitCode}}')
+          docker logs seatbelt-ci 2>&1 | tail -5
+          if [ "$code" != "0" ]; then
+            echo "the container exited with $code, shutdown was not clean"
+            exit 1
+          fi
