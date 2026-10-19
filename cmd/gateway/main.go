@@ -128,18 +128,26 @@ func run() error {
 // be honored in full.
 const shutdownTimeout = 20 * time.Second
 
+// settleTimeout lets cut-off streams record their cost after a forced close.
+const settleTimeout = 3 * time.Second
+
 // shutdown drains the gateway: the listener closes first, then the
 // workers stop once every handler has returned.
 func shutdown(srv *http.Server, gw *server.Server) error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
+	poolCtx := ctx
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("some requests did not finish within %s, closing anyway", shutdownTimeout)
 		_ = srv.Close()
+
+		var settle context.CancelFunc
+		poolCtx, settle = context.WithTimeout(context.Background(), settleTimeout)
+		defer settle()
 	}
 
-	if err := gw.ShutdownPools(ctx); err != nil {
+	if err := gw.ShutdownPools(poolCtx); err != nil {
 		log.Printf("%v", err)
 	}
 

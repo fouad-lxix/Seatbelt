@@ -59,6 +59,11 @@ little longer each time, no code, no retry logic, no on-call page. If a
 request fails because something is genuinely wrong with it, it does not
 waste time retrying, it tells you immediately so you can fix it.
 
+**It streams, too.** If your app shows answers word by word as they're
+written, that works straight through Seatbelt, with every protection still
+on. And if someone closes the page halfway through an answer, Seatbelt stops
+it right there, so you never pay for words nobody will read.
+
 **It never leaves you hanging.** If it's too busy to take more work right
 now, you get an immediate, clear answer instead of a request that quietly
 sits there. You always know exactly where you stand.
@@ -181,10 +186,6 @@ leaving it in by accident is harmless.
 ## Coming soon
 
 Seatbelt is under active development. Here's what's landing next.
-
-**Streaming.** Answers that arrive word by word as they're generated,
-working straight through Seatbelt with every protection it already gives
-you, budget cap, retries, and all.
 
 **Separate budgets per project or key.** One Seatbelt, shared by a whole
 team, with each project or app getting its own spending limit instead of

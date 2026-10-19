@@ -18,6 +18,7 @@ type Counters struct {
 	retried   atomic.Int64
 	rejected  atomic.Int64
 	unpriced  atomic.Int64
+	estimated atomic.Int64
 
 	mu    sync.Mutex
 	spend float64
@@ -41,6 +42,9 @@ func (c *Counters) IncRejected() { c.rejected.Add(1) }
 // determined.
 func (c *Counters) IncUnpriced() { c.unpriced.Add(1) }
 
+// IncEstimated counts a stream whose cost had to be estimated.
+func (c *Counters) IncEstimated() { c.estimated.Add(1) }
+
 func (c *Counters) AddSpend(usd float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -55,6 +59,7 @@ type Counts struct {
 	Retried   int64   `json:"retried"`
 	Rejected  int64   `json:"rejected"`
 	Unpriced  int64   `json:"unpriced"`
+	Estimated int64   `json:"estimated"`
 	SpendUSD  float64 `json:"spend_usd"`
 }
 
@@ -70,6 +75,7 @@ func (c *Counters) Snapshot() Counts {
 		Retried:   c.retried.Load(),
 		Rejected:  c.rejected.Load(),
 		Unpriced:  c.unpriced.Load(),
+		Estimated: c.estimated.Load(),
 		SpendUSD:  spend,
 	}
 }
@@ -82,6 +88,7 @@ func (a Counts) Add(b Counts) Counts {
 		Retried:   a.Retried + b.Retried,
 		Rejected:  a.Rejected + b.Rejected,
 		Unpriced:  a.Unpriced + b.Unpriced,
+		Estimated: a.Estimated + b.Estimated,
 		SpendUSD:  a.SpendUSD + b.SpendUSD,
 	}
 }

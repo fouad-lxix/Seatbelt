@@ -32,11 +32,19 @@ type result struct {
 	err  error
 }
 
+// Only a queued job can be started or abandoned, so exactly one side wins.
+const (
+	jobQueued int32 = iota
+	jobStarted
+	jobAbandoned
+)
+
 type job struct {
 	// ctx belongs to the caller's HTTP request and travels with the job
 	// across the goroutine boundary to the worker that will run it.
-	ctx context.Context
-	req provider.Request
+	ctx   context.Context
+	req   provider.Request
+	state atomic.Int32
 
 	// result is buffered with capacity 1. If it were unbuffered and the
 	// caller had already walked away, the worker would block forever
@@ -181,8 +189,16 @@ func (p *Pool) Submit(ctx context.Context, req provider.Request) (*provider.Resp
 	case res := <-j.result:
 		return res.resp, res.err
 	case <-ctx.Done():
-		// The job carries on regardless. Its result lands on the
-		// buffered channel where nothing collects it.
+		if j.state.CompareAndSwap(jobQueued, jobAbandoned) || !req.Stream {
+			// The job carries on, its result lands where nothing collects it.
+			return nil, ctx.Err()
+		}
+
+		// A started stream must still be closed, or its worker stays stuck.
+		res := <-j.result
+		if res.resp != nil && res.resp.Stream != nil {
+			res.resp.Stream.Close()
+		}
 		return nil, ctx.Err()
 	}
 }
@@ -245,7 +261,10 @@ func (p *Pool) run(j *job) {
 	// A job can wait in the queue long enough that its caller is already
 	// gone. This check is an optimisation, not a guarantee: the caller
 	// can still leave a moment after it passes.
-	if err := j.ctx.Err(); err != nil {
+	if err := j.ctx.Err(); err != nil || !j.state.CompareAndSwap(jobQueued, jobStarted) {
+		if err == nil {
+			err = context.Canceled
+		}
 		p.counters.IncFailed()
 		j.result <- result{err: fmt.Errorf("%w: %v", ErrCallerGone, err)}
 		return
@@ -263,6 +282,11 @@ func (p *Pool) run(j *job) {
 	}
 
 	j.result <- result{resp: resp, err: err}
+
+	// The worker stays busy until the stream is closed.
+	if resp != nil && resp.Stream != nil {
+		<-resp.Stream.Done()
+	}
 }
 
 // call makes the upstream request, paced by the rate limiter and repeated
@@ -287,11 +311,11 @@ func (p *Pool) call(ctx context.Context, req provider.Request) (*provider.Respon
 		resp, err := p.prov.Send(ctx, req)
 
 		if resp != nil && resp.StatusCode == http.StatusOK {
-			cost, rerr := p.budget.Record(resp.Usage, p.prov)
-			if rerr != nil {
-				p.counters.IncUnpriced()
+			if resp.Stream != nil {
+				// A stream's cost is only known once it ends.
+				resp.Stream.OnFinish(p.recordStream)
 			} else {
-				p.counters.AddSpend(cost)
+				p.record(resp.Usage)
 			}
 		}
 
@@ -317,6 +341,22 @@ func (p *Pool) call(ctx context.Context, req provider.Request) (*provider.Respon
 	// Return the provider's own last response rather than an error
 	// Seatbelt invented, so the caller sees the real status and body.
 	return lastResp, lastErr
+}
+
+func (p *Pool) record(u provider.Usage) {
+	cost, err := p.budget.Record(u, p.prov)
+	if err != nil {
+		p.counters.IncUnpriced()
+		return
+	}
+	p.counters.AddSpend(cost)
+}
+
+func (p *Pool) recordStream(u provider.Usage, estimated bool) {
+	if estimated {
+		p.counters.IncEstimated()
+	}
+	p.record(u)
 }
 
 func (p *Pool) lastOr(resp *provider.Response, respErr, fallback error) (*provider.Response, error) {

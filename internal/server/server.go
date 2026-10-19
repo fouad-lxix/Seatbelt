@@ -173,18 +173,15 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 		return
 	}
 
-	// Streamed responses cannot be priced, so refuse them before they cost anything.
-	if wantsStream(body) {
-		writeError(w, http.StatusBadRequest, "streaming_not_supported",
-			`streaming is not supported yet, remove "stream": true from the request`)
-		return
-	}
-
 	// r.Context() is cancelled when the client disconnects, letting a
 	// worker skip a job whose caller has gone.
-	resp, err := p.Submit(r.Context(), provider.Request{Body: body})
+	resp, err := p.Submit(r.Context(), provider.Request{Body: body, Stream: wantsStream(body)})
 	if err != nil {
 		s.writeSubmitError(w, r, rt, err)
+		return
+	}
+	if resp.Stream != nil {
+		writeStream(w, rt, resp)
 		return
 	}
 
@@ -192,6 +189,51 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 	w.WriteHeader(resp.StatusCode)
 	if _, err := w.Write(resp.Body); err != nil {
 		log.Printf("%s: could not write response to client: %v", rt.Provider, err)
+	}
+}
+
+// writeStream forwards each event and flushes it straight away.
+func writeStream(w http.ResponseWriter, rt Route, resp *provider.Response) {
+	defer resp.Stream.Close()
+
+	copyUpstreamHeaders(w.Header(), resp.Header)
+	w.Header().Set("Cache-Control", "no-cache")
+	// Stops nginx and similar proxies from batching the stream.
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(resp.StatusCode)
+
+	rc := http.NewResponseController(w)
+	flush := func() error {
+		if err := rc.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return err
+		}
+		return nil
+	}
+	if err := flush(); err != nil {
+		return
+	}
+
+	for {
+		chunk, err := resp.Stream.Next()
+		if errors.Is(err, io.EOF) {
+			return
+		}
+		if errors.Is(err, context.Canceled) {
+			log.Printf("%s: client disconnected mid-stream", rt.Provider)
+			return
+		}
+		if err != nil {
+			log.Printf("%s: stream ended early: %v", rt.Provider, err)
+			return
+		}
+		if _, err := w.Write(chunk); err != nil {
+			log.Printf("%s: client disconnected mid-stream", rt.Provider)
+			return
+		}
+		if err := flush(); err != nil {
+			log.Printf("%s: client disconnected mid-stream", rt.Provider)
+			return
+		}
 	}
 }
 
@@ -314,6 +356,9 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
 }
+
+// Unwrap lets http.ResponseController flush the real writer.
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -200,6 +200,7 @@ const statsHTML = `<!doctype html>
   <tr><td>Remaining</td><td>{{usd .Budget.RemainingUSD}}</td></tr>
   <tr><td>Calls priced</td><td>{{.Budget.Calls}}</td></tr>
   <tr><td>Calls that could not be priced</td><td>{{.Budget.UnpricedCalls}}</td></tr>
+  <tr><td>Streams cut short, cost estimated</td><td>{{.Combined.Counts.Estimated}}</td></tr>
 </table>
 
 <h2>Providers</h2>

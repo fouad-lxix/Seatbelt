@@ -11,6 +11,7 @@ package provider
 import (
 	"context"
 	"net/http"
+	"time"
 )
 
 // Provider is the interface the worker pool, the budget tracker and the
@@ -33,6 +34,8 @@ type Provider interface {
 type Request struct {
 	// Body is the caller's JSON, forwarded byte for byte.
 	Body []byte
+
+	Stream bool
 }
 
 // Response is what the upstream provider returned.
@@ -45,6 +48,9 @@ type Response struct {
 	Header http.Header
 
 	Body []byte
+
+	// Stream replaces Body for a streamed answer and must always be closed.
+	Stream *Stream
 
 	// Usage is the token accounting extracted from Body, if present. See
 	// Usage.Reported.
@@ -128,4 +134,7 @@ type Options struct {
 
 	// HTTPClient replaces the default client.
 	HTTPClient *http.Client
+
+	// StreamIdleTimeout is how long a stream may stay silent. Zero means 5 minutes.
+	StreamIdleTimeout time.Duration
 }
