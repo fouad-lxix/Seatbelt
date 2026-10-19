@@ -14,6 +14,8 @@ const (
 	DefaultRateLimitPerMin    = 60
 	DefaultMaxQueueDepth      = 64
 	DefaultPort               = 8080
+	DefaultSpendReset         = "monthly"
+	DefaultDataDir            = "data"
 )
 
 // Config is the fully resolved, validated configuration for one run. It is
@@ -52,6 +54,16 @@ type Config struct {
 	// PricingURL overrides where that file is fetched from. Empty means
 	// the published default.
 	PricingURL string
+
+	// SpendReset is when the spend total starts over: "monthly" or "never".
+	SpendReset string
+
+	// DataDir is where the spend record is saved.
+	DataDir string
+
+	// RecoverSpendUSD sets the spend total when no readable record exists.
+	// Nil when unset.
+	RecoverSpendUSD *float64
 }
 
 // Load reads configuration from the environment, applies defaults, and
@@ -73,6 +85,18 @@ func Load() (Config, error) {
 	cfg.Port = envInt("PORT", DefaultPort, &problems)
 	cfg.PricingRefresh = envBool("PRICING_REFRESH", true, &problems)
 	cfg.PricingURL = strings.TrimSpace(os.Getenv("PRICING_URL"))
+	cfg.SpendReset = strings.ToLower(strings.TrimSpace(os.Getenv("SPEND_RESET")))
+	if cfg.SpendReset == "" {
+		cfg.SpendReset = DefaultSpendReset
+	}
+	cfg.DataDir = strings.TrimSpace(os.Getenv("DATA_DIR"))
+	if cfg.DataDir == "" {
+		cfg.DataDir = DefaultDataDir
+	}
+	if os.Getenv("RECOVER_SPEND_USD") != "" {
+		v := envFloat("RECOVER_SPEND_USD", 0, &problems)
+		cfg.RecoverSpendUSD = &v
+	}
 
 	if cfg.AnthropicAPIKey == "" && cfg.OpenAIAPIKey == "" {
 		problems = append(problems, "no provider API keys set: set ANTHROPIC_API_KEY, OPENAI_API_KEY, or both")
@@ -94,6 +118,13 @@ func Load() (Config, error) {
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		problems = append(problems, "PORT must be between 1 and 65535")
+	}
+
+	if cfg.SpendReset != "monthly" && cfg.SpendReset != "never" {
+		problems = append(problems, fmt.Sprintf("SPEND_RESET=%q must be monthly or never", cfg.SpendReset))
+	}
+	if cfg.RecoverSpendUSD != nil && *cfg.RecoverSpendUSD < 0 {
+		problems = append(problems, "RECOVER_SPEND_USD must be 0 or greater")
 	}
 
 	if len(problems) > 0 {
@@ -121,6 +152,7 @@ func (c Config) Summary() string {
 	fmt.Fprintf(&b, "workers per provider=%d\n", c.WorkersPerProvider)
 	fmt.Fprintf(&b, "rate limit=%d requests/minute per provider\n", c.RateLimitPerMin)
 	fmt.Fprintf(&b, "max queue depth=%d per provider\n", c.MaxQueueDepth)
+	fmt.Fprintf(&b, "spend reset=%s, saved to %s\n", c.SpendReset, c.DataDir)
 	if c.PricingRefresh {
 		fmt.Fprintf(&b, "pricing=refreshed daily from the published table")
 	} else {

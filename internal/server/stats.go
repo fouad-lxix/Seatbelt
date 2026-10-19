@@ -68,6 +68,11 @@ func (s *Server) report() stats.Report {
 			UnpricedCalls: b.UnpricedCalls,
 			Halted:        b.Halted,
 			HaltReason:    b.HaltReason,
+			Period:        b.Period,
+			Reset:         b.Reset,
+			ResetsAt:      b.ResetsAt,
+			Persisted:     b.Persisted,
+			SaveError:     b.SaveError,
 		},
 		Providers: providers,
 		Combined:  stats.Combine(providers),
@@ -119,6 +124,22 @@ var statsTemplate = template.Must(template.New("stats").Funcs(template.FuncMap{
 		return p
 	},
 	"num": func(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) },
+	// month turns "2026-10" into "October 2026".
+	"month": func(period string) string {
+		t, err := time.Parse("2006-01", period)
+		if err != nil {
+			return period
+		}
+		return t.Format("January 2006")
+	},
+	// day turns "2026-11-01" into "Nov 1".
+	"day": func(date string) string {
+		t, err := time.Parse("2006-01-02", date)
+		if err != nil {
+			return date
+		}
+		return t.Format("Jan 2")
+	},
 }).Parse(statsHTML))
 
 const statsHTML = `<!doctype html>
@@ -147,6 +168,8 @@ const statsHTML = `<!doctype html>
   .money { font-size: 1.5rem; font-weight: 600; margin: 0; }
   .halted { padding: .75rem 1rem; border-radius: .4rem; margin: 1rem 0;
             background: color-mix(in srgb, crimson 15%, Canvas); border: 1px solid crimson; }
+  .warn { padding: .75rem 1rem; border-radius: .4rem; margin: 1rem 0;
+          background: color-mix(in srgb, orange 15%, Canvas); border: 1px solid orange; }
   code { font-family: ui-monospace, Consolas, monospace; font-size: .85em; }
   footer { margin-top: 2.5rem; font-size: .8rem; opacity: .6; }
 </style>
@@ -166,6 +189,13 @@ const statsHTML = `<!doctype html>
 <h2>Budget</h2>
 <p class="money">{{usd .Budget.SpentUSD}} <span style="opacity:.55;font-size:1rem">of {{usd .Budget.CapUSD}}</span></p>
 <div class="bar"><i style="width:{{pct .Budget.SpentUSD .Budget.CapUSD}}%"></i></div>
+<p class="sub" style="margin:.4rem 0 0">{{if .Budget.ResetsAt}}{{month .Budget.Period}} &middot; resets {{day .Budget.ResetsAt}}{{else}}All time &middot; never resets{{end}}</p>
+{{if not .Budget.Persisted}}
+<div class="warn">The total is kept in memory only and starts from $0 on restart.</div>
+{{else if .Budget.SaveError}}
+<div class="warn"><strong>Saving failed.</strong> {{.Budget.SaveError}}<br>
+  The cap is still enforced, but the total will not survive a restart.</div>
+{{end}}
 <table>
   <tr><td>Remaining</td><td>{{usd .Budget.RemainingUSD}}</td></tr>
   <tr><td>Calls priced</td><td>{{.Budget.Calls}}</td></tr>

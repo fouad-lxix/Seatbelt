@@ -125,6 +125,12 @@ type Budget struct {
 	UnpricedCalls int64   `json:"calls_unpriced"`
 	Halted        bool    `json:"halted"`
 	HaltReason    string  `json:"halt_reason,omitempty"`
+
+	Period    string `json:"period"`
+	Reset     string `json:"reset"`
+	ResetsAt  string `json:"resets_at,omitempty"`
+	Persisted bool   `json:"persisted"`
+	SaveError string `json:"save_error,omitempty"`
 }
 
 // Report is the whole /stats document.

@@ -15,6 +15,9 @@ COPY . .
 ENV CGO_ENABLED=0 GOOS=linux
 RUN go build -trimpath -ldflags="-s -w" -o /seatbelt ./cmd/gateway
 
+# scratch has no mkdir, so the data directory is made here.
+RUN mkdir -p /out/data
+
 # scratch has no shell, no package manager, no libc, so there is nothing
 # in the image to exploit. The trade is no docker exec, swap for
 # alpine:3 if you want a shell in the container.
@@ -24,6 +27,11 @@ FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 COPY --from=build /seatbelt /seatbelt
+
+# Where the spend total is saved. Mount a volume here to keep it.
+COPY --from=build --chown=65534:65534 /out/data /data
+ENV DATA_DIR=/data
+VOLUME /data
 
 # Numeric since scratch has no /etc/passwd to resolve a username against.
 USER 65534:65534

@@ -59,7 +59,20 @@ func run() error {
 
 	// One ledger for the whole gateway, the cap is on total spend, not
 	// per provider.
-	tracker := budget.New(cfg.MaxSpendUSD)
+	reset := budget.ResetMonthly
+	if cfg.SpendReset == "never" {
+		reset = budget.ResetNever
+	}
+	tracker, err := budget.Open(budget.Options{
+		CapUSD:  cfg.MaxSpendUSD,
+		Reset:   reset,
+		Dir:     cfg.DataDir,
+		Recover: cfg.RecoverSpendUSD,
+	})
+	if err != nil {
+		return err
+	}
+	logSpend(tracker.Snapshot())
 
 	pools, limiters := buildPools(cfg, tracker, prices)
 	if len(pools) == 0 {
@@ -168,6 +181,15 @@ func buildPools(cfg config.Config, tracker *budget.Tracker, prices *pricing.Stor
 		}))
 	}
 	return pools, limiters
+}
+
+// logSpend reports the restored spend total at startup.
+func logSpend(s budget.Snapshot) {
+	if s.ResetsAt == "" {
+		log.Printf("spend: $%.4f of $%.2f, never resets", s.SpentUSD, s.CapUSD)
+		return
+	}
+	log.Printf("spend: $%.4f of $%.2f for %s, resets %s", s.SpentUSD, s.CapUSD, s.Period, s.ResetsAt)
 }
 
 // printBanner tells the operator exactly what to point their client at.

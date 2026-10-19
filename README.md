@@ -15,7 +15,7 @@ Built in Go, it's small, fast, and stays out of your way, one lightweight
 process with nothing extra bolted on.
 
 ```sh
-docker run --rm -p 8080:8080 -e ANTHROPIC_API_KEY=sk-ant-... seatbelt
+docker run --rm -p 8080:8080 -v seatbelt-data:/data -e ANTHROPIC_API_KEY=sk-ant-... seatbelt
 ```
 
 That's the whole install.
@@ -45,7 +45,8 @@ babysit that code.
 **It stops you from overspending. Completely.** You tell it a dollar limit,
 once. From that moment on, Seatbelt stops making new calls the instant the
 limit is hit and tells you clearly. Not a warning you might miss. A hard
-stop.
+stop. The limit is monthly, it starts fresh on the 1st of every month, and
+Seatbelt remembers what you've spent even if it restarts.
 
 **It never lets your requests overwhelm the provider.** You decide how many
 requests can be happening at once. Everything beyond that waits its turn
@@ -81,6 +82,7 @@ Once Docker is installed, open a terminal in this project folder and run:
 ```sh
 docker build -t seatbelt .
 docker run --rm -p 8080:8080 \
+  -v seatbelt-data:/data \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -e MAX_SPEND_USD=5.00 \
   --name seatbelt seatbelt
@@ -90,6 +92,10 @@ Replace `sk-ant-...` with your real Anthropic API key (the code you get from
 your Anthropic account that lets you use Claude), and `5.00` with the dollar
 limit you want to set. That's it. Seatbelt is running, and everything below
 is now handled for you automatically.
+
+The `-v seatbelt-data:/data` line gives Seatbelt a place to remember what
+you've spent this month. Keep it in, so restarting Seatbelt never wipes
+your spending total.
 
 To stop it, press `Ctrl-C` in that same terminal, or run
 `docker stop -t 30 seatbelt` from another one. Either way, it finishes
@@ -139,6 +145,7 @@ You can adjust how Seatbelt behaves by setting these before you run it (see
 | `ANTHROPIC_API_KEY` | none | Your Claude key. Set this to enable Claude. |
 | `OPENAI_API_KEY` | none | Your OpenAI key. Set this to enable GPT. |
 | `MAX_SPEND_USD` | $5.00 | The hard spending limit. |
+| `SPEND_RESET` | monthly | When your spending total starts over: `monthly` (on the 1st) or `never`. |
 | `WORKERS_PER_PROVIDER` | 4 | How many requests can run at the same time. |
 | `RATE_LIMIT_PER_PROVIDER` | 60 | How many requests per minute are allowed. |
 | `MAX_QUEUE_DEPTH` | 64 | How many requests can wait in line before new ones are turned away. |
@@ -158,6 +165,18 @@ last prices it trusted, so your spending limit is never silently wrong.
 
 If you'd rather it never checked for updates automatically, set
 `PRICING_REFRESH=false` when you run it.
+
+## If your spending record gets damaged
+
+Seatbelt keeps a backup of its spending record, so this is rare. But if
+both copies are ever damaged, Seatbelt won't guess. It starts in a stopped
+state, makes no calls, and tells you exactly what happened.
+
+To fix it, check how much you've spent this month on your provider's
+billing page, then start Seatbelt once with that amount, for example
+`-e RECOVER_SPEND_USD=3.40` (or `0` to start fresh). Seatbelt picks up from
+there. It only ever uses this setting when the record is damaged, so
+leaving it in by accident is harmless.
 
 ## Coming soon
 

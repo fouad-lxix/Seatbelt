@@ -10,6 +10,9 @@
 /bin/
 /dist/
 
+# Saved spend total from local runs
+/data/
+
 # Test files and test output
 *_test.go
 *.test
