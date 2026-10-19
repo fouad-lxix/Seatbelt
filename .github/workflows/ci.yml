@@ -19,6 +19,7 @@ jobs:
         with:
           go-version: stable
           check-latest: true
+          cache: false
 
       - name: gofmt
         run: |
@@ -44,6 +45,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
+          cache: false
 
       # Every rule a running gateway applies to a fetched price file is
       # applied here too, so a bad price cannot be merged.
