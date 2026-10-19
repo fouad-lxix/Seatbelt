@@ -173,6 +173,13 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 		return
 	}
 
+	// Streamed responses cannot be priced, so refuse them before they cost anything.
+	if wantsStream(body) {
+		writeError(w, http.StatusBadRequest, "streaming_not_supported",
+			`streaming is not supported yet, remove "stream": true from the request`)
+		return
+	}
+
 	// r.Context() is cancelled when the client disconnects, letting a
 	// worker skip a job whose caller has gone.
 	resp, err := p.Submit(r.Context(), provider.Request{Body: body})
@@ -186,6 +193,17 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 	if _, err := w.Write(resp.Body); err != nil {
 		log.Printf("%s: could not write response to client: %v", rt.Provider, err)
 	}
+}
+
+// wantsStream reports whether the request body sets "stream": true.
+func wantsStream(body []byte) bool {
+	var req struct {
+		Stream bool `json:"stream"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return false
+	}
+	return req.Stream
 }
 
 // writeSubmitError turns one of the pool's sentinel errors into an HTTP
